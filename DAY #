@@ -1,7 +1,430 @@
-echo "# SQL-training" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/Anurag0115/SQL-training.git
-git push -u origin main
+Aliases & Set Operations for Reporting (Regional Sales Ops)
+
+Objective
+
+
+Master column/table aliases and set operations to build clean, unified reports from multiple regional sources. You’ll practice:
+
+Column & table aliases for readability
+UNION / UNION ALL (and how to dedupe)
+INTERSECT & MINUS / EXCEPT use-cases with portable patterns (since MySQL doesn’t natively support these, you’ll learn JOIN-based equivalents)
+Practical reporting patterns: harmonizing schemas, tagging sources, sorting, and post-merge calculations
+DB: MySQL 8+.
+Note on portability: PostgreSQL/SQL Server support INTERSECT and EXCEPT. MySQL does not—we’ll use JOIN-based equivalents you can port anywhere.
+
+Case Study — “NorthStar Retail”
+
+
+NorthStar Retail consolidates Quarterly Sales from North, South, and West regions. Legacy processes left small schema differences. You’ll:
+
+Normalize column names with aliases,
+Combine datasets into a single report using UNION / UNION ALL,
+Compute shared customers across regions (INTERSECT-like), and
+Find customers exclusive to a region (MINUS/EXCEPT-like).
+
+Part A — Setup & Seed Data
+
+
+Step 1 — Create and enter the database
+
+
+CREATE DATABASE IF NOT EXISTS northstar_retail;
+USE northstar_retail;
+
+Step 2 — Create region tables (slight schema differences by design)
+
+
+DROP TABLE IF EXISTS sales_north, sales_south, sales_west, customers;
+
+CREATE TABLE customers (
+  customer_id INT PRIMARY KEY,
+  customer_name VARCHAR(80),
+  segment VARCHAR(40)      -- e.g., Consumer, Corporate
+);
+
+CREATE TABLE sales_north (
+  sale_id INT PRIMARY KEY,
+  customer_id INT,
+  product VARCHAR(80),
+  qty INT,
+  net_amount DECIMAL(10,2),
+  sale_date DATE,
+  FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+-- South region calls 'amount' instead of 'net_amount'
+CREATE TABLE sales_south (
+  sale_id INT PRIMARY KEY,
+  customer_id INT,
+  product VARCHAR(80),
+  qty INT,
+  amount DECIMAL(10,2),
+  sale_date DATE,
+  FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+-- West region uses different column order and names
+CREATE TABLE sales_west (
+  id INT PRIMARY KEY,
+  cust_id INT,
+  item VARCHAR(80),
+  quantity INT,
+  gross DECIMAL(10,2),
+  sold_on DATE,
+  FOREIGN KEY (cust_id) REFERENCES customers(customer_id)
+);
+
+Step 3 — Insert master customers
+
+
+INSERT INTO customers VALUES
+(1,'Alice & Co','Consumer'),
+(2,'BrightWorks','Corporate'),
+(3,'Crimson Labs','Corporate'),
+(4,'Delta Mart','Consumer'),
+(5,'Epicure Traders','Consumer');
+
+Step 4 — Insert regional sales
+
+
+INSERT INTO sales_north VALUES
+(101,1,'Laptop',1,78000,'2025-01-17'),
+(102,2,'Mouse',4,1600,'2025-02-05'),
+(103,1,'Headphones',2,3800,'2025-02-20');
+
+INSERT INTO sales_south VALUES
+(201,3,'Laptop Stand',3,4500,'2025-01-22'),
+(202,4,'Keyboard',2,3000,'2025-02-07'),
+(203,2,'USB Hub',5,5000,'2025-03-03');
+
+INSERT INTO sales_west VALUES
+(301,5,'Monitor',2,24000,'2025-01-11'),
+(302,2,'Laptop',1,82000,'2025-02-14'),
+(303,3,'Desk Lamp',4,5200,'2025-03-01');
+
+Step 5 — Sanity-check rows
+
+
+SELECT * FROM customers;
+SELECT * FROM sales_north;
+SELECT * FROM sales_south;
+SELECT * FROM sales_west;
+
+Part B — Aliases for Clean, Uniform Output
+
+
+Step 6 — Column aliasing to harmonize outputs
+
+
+SELECT
+  sale_id        AS sale_id,
+  customer_id    AS customer_id,
+  product        AS product,
+  qty            AS quantity,
+  net_amount     AS amount,
+  sale_date      AS sale_date,
+  'NORTH'        AS region
+FROM sales_north;
+
+Step 7 — Apply aliases to South (normalize amount)
+
+
+SELECT
+  sale_id        AS sale_id,
+  customer_id    AS customer_id,
+  product        AS product,
+  qty            AS quantity,
+  amount         AS amount,       -- already named 'amount'
+  sale_date      AS sale_date,
+  'SOUTH'        AS region
+FROM sales_south;
+
+Step 8 — Apply aliases to West (rename & reorder)
+
+
+SELECT
+  id             AS sale_id,
+  cust_id        AS customer_id,
+  item           AS product,
+  quantity       AS quantity,
+  gross          AS amount,
+  sold_on        AS sale_date,
+  'WEST'         AS region
+FROM sales_west;
+Why aliases? You’re building a uniform schema to stack with UNION.
+
+
+Part C — Set Operations (UNION / UNION ALL)
+
+
+Step 9 — Combine all regions (dedupe with UNION)
+
+
+SELECT sale_id, customer_id, product, quantity, amount, sale_date, region FROM (
+  SELECT sale_id, customer_id, product, qty AS quantity, net_amount AS amount, sale_date, 'NORTH' AS region FROM sales_north
+  UNION
+  SELECT sale_id, customer_id, product, qty AS quantity, amount, sale_date, 'SOUTH' AS region FROM sales_south
+  UNION
+  SELECT id AS sale_id, cust_id AS customer_id, item AS product, quantity, gross AS amount, sold_on AS sale_date, 'WEST' AS region FROM sales_west
+) t
+ORDER BY sale_date, region;
+UNION removes duplicates if any rows are identical across regions.
+
+Step 10 — Keep duplicates (use UNION ALL)
+
+
+SELECT sale_id, customer_id, product, quantity, amount, sale_date, region FROM (
+  SELECT sale_id, customer_id, product, qty AS quantity, net_amount AS amount, sale_date, 'NORTH' AS region FROM sales_north
+  UNION ALL
+  SELECT sale_id, customer_id, product, qty AS quantity, amount, sale_date, 'SOUTH' AS region FROM sales_south
+  UNION ALL
+  SELECT id AS sale_id, cust_id AS customer_id, item AS product, quantity, gross AS amount, sold_on AS sale_date, 'WEST' AS region FROM sales_west
+) t
+ORDER BY sale_date, region;
+UNION ALL is faster and preserves duplicates—use when dedupe isn’t needed.
+
+Step 11 — Add readable column aliases to the final stack
+
+
+SELECT
+  sale_id             AS SaleID,
+  customer_id         AS CustomerID,
+  product             AS Product,
+  quantity            AS Quantity,
+  amount              AS Amount,
+  sale_date           AS SaleDate,
+  region              AS Region
+FROM (
+  SELECT sale_id, customer_id, product, qty AS quantity, net_amount AS amount, sale_date, 'NORTH' AS region FROM sales_north
+  UNION ALL
+  SELECT sale_id, customer_id, product, qty AS quantity, amount, sale_date, 'SOUTH' AS region FROM sales_south
+  UNION ALL
+  SELECT id, cust_id, item, quantity, gross, sold_on, 'WEST' FROM sales_west
+) u;
+
+Part D — INTERSECT (Common Rows) — Portable Patterns
+
+
+MySQL note: INTERSECT is not supported. Use INNER JOIN on matched columns.
+Step 12 — Customers who bought in both North and South (by customer_id)
+
+
+SELECT DISTINCT n.customer_id
+FROM sales_north n
+INNER JOIN sales_south s
+  ON s.customer_id = n.customer_id;
+
+Step 13 — Common customers in all three regions
+
+
+SELECT DISTINCT n.customer_id
+FROM sales_north n
+JOIN sales_south s ON s.customer_id = n.customer_id
+JOIN sales_west  w ON w.cust_id     = n.customer_id;
+
+Step 14 — INTERSECT-like by (customer_id, product)
+
+
+SELECT DISTINCT n.customer_id, n.product
+FROM sales_north n
+JOIN sales_south s
+  ON s.customer_id = n.customer_id
+ AND s.product     = n.product;
+Tip: For PostgreSQL/SQL Server you could write:
+SELECT customer_id FROM sales_north
+INTERSECT
+SELECT customer_id FROM sales_south;
+
+Part E — MINUS / EXCEPT (Set Difference) — Portable Patterns
+
+
+MySQL note: EXCEPT/MINUS are not supported. Use LEFT JOIN … IS NULL.
+
+Step 15 — Customers who purchased in North but not South
+SELECT DISTINCT n.customer_id
+FROM sales_north n
+LEFT JOIN sales_south s
+  ON s.customer_id = n.customer_id
+WHERE s.customer_id IS NULL;
+
+Step 16 — Products sold in West but not North
+SELECT DISTINCT w.item AS product
+FROM sales_west w
+LEFT JOIN sales_north n
+  ON n.product = w.item
+WHERE n.product IS NULL;
+
+Step 17 — (customer_id, product) sold in South but not West
+SELECT DISTINCT s.customer_id, s.product
+FROM sales_south s
+LEFT JOIN sales_west w
+  ON w.cust_id = s.customer_id
+ AND w.item    = s.product
+WHERE w.cust_id IS NULL;
+
+Tip: In PostgreSQL/SQL Server:
+SELECT customer_id FROM sales_north
+EXCEPT
+SELECT customer_id FROM sales_south;
+
+Part F — Building a Consolidated Regional Report
+
+
+Step 18 — Create a unified view with aliases (reusable)
+
+
+DROP VIEW IF EXISTS v_all_sales;
+
+CREATE VIEW v_all_sales AS
+SELECT sale_id, customer_id, product, qty AS quantity, net_amount AS amount, sale_date, 'NORTH' AS region
+FROM sales_north
+UNION ALL
+SELECT sale_id, customer_id, product, qty, amount, sale_date, 'SOUTH'
+FROM sales_south
+UNION ALL
+SELECT id, cust_id, item, quantity, gross, sold_on, 'WEST'
+FROM sales_west;
+
+Step 19 — Report: show sales with customer names (table aliases)
+
+
+SELECT
+  s.sale_id     AS SaleID,
+  c.customer_name AS Customer,
+  s.product     AS Product,
+  s.quantity    AS Qty,
+  s.amount      AS Amount,
+  s.sale_date   AS SaleDate,
+  s.region      AS Region
+FROM v_all_sales s
+JOIN customers c ON c.customer_id = s.customer_id
+ORDER BY s.sale_date;
+
+Step 20 — Aggregation by region with aliases
+
+
+SELECT
+  s.region                  AS Region,
+  COUNT(*)                  AS Orders,
+  SUM(s.amount)             AS TotalAmount,
+  ROUND(AVG(s.amount), 2)   AS AvgOrderValue
+FROM v_all_sales s
+GROUP BY s.region
+ORDER BY TotalAmount DESC;
+
+Step 21 — Top products company-wide
+
+
+SELECT
+  s.product   AS Product,
+  SUM(s.quantity) AS UnitsSold,
+  SUM(s.amount)   AS Revenue
+FROM v_all_sales s
+GROUP BY s.product
+ORDER BY Revenue DESC, UnitsSold DESC;
+
+Part G — Data-Quality & Harmonization Tricks
+
+
+Step 22 — Add a computed alias (e.g., revenue tier)
+
+
+SELECT
+  s.sale_id,
+  s.product,
+  s.amount,
+  CASE
+    WHEN s.amount >= 50000 THEN 'High'
+    WHEN s.amount >= 10000 THEN 'Medium'
+    ELSE 'Low'
+  END AS revenue_tier
+FROM v_all_sales s
+ORDER BY s.amount DESC;
+
+Step 23 — Uniform casing / trimming via aliases
+
+
+SELECT
+  s.customer_id,
+  UPPER(TRIM(s.product)) AS product_norm,
+  s.region,
+  s.sale_date
+FROM v_all_sales s
+ORDER BY product_norm;
+
+Step 24 — Harmonize NULL/empty values with COALESCE
+
+
+SELECT
+  s.product                                   AS product_raw,
+  COALESCE(NULLIF(TRIM(s.product), ''), 'NA') AS product_clean,
+  s.region
+FROM v_all_sales s;
+
+Part H — “INTERSECT/MINUS” Business Questions (Portable)
+
+
+Step 25 — Which customers purchased in at least two regions?
+SELECT customer_id
+FROM v_all_sales
+GROUP BY customer_id
+HAVING COUNT(DISTINCT region) >= 2;
+
+Step 26 — Which customers are exclusive to one region?
+SELECT customer_id, MIN(region) AS Region
+FROM v_all_sales
+GROUP BY customer_id
+HAVING COUNT(DISTINCT region) = 1;
+
+Step 27 — Products shared between North & West (INTERSECT-like)
+SELECT DISTINCT n.product
+FROM v_all_sales n
+JOIN v_all_sales w
+  ON w.product = n.product
+WHERE n.region = 'NORTH' AND w.region = 'WEST';
+
+Step 28 — Products sold in South but not in North (MINUS-like)
+
+
+SELECT DISTINCT s.product
+FROM v_all_sales s
+LEFT JOIN v_all_sales n
+  ON n.product = s.product AND n.region = 'NORTH'
+WHERE s.region = 'SOUTH' AND n.product IS NULL;
+
+Part I — Validation & Performance
+
+
+Step 29 — Validate row counts
+
+
+SELECT 'NORTH' AS region, COUNT(*) FROM sales_north
+UNION ALL
+SELECT 'SOUTH', COUNT(*) FROM sales_south
+UNION ALL
+SELECT 'WEST', COUNT(*) FROM sales_west;
+
+Step 30 — Inspect plan on the unified view
+
+
+EXPLAIN SELECT * FROM v_all_sales WHERE region = 'WEST';
+
+Tip: Add indexes on frequently filtered columns:
+
+CREATE INDEX idx_north_customer ON sales_north(customer_id);
+CREATE INDEX idx_south_customer ON sales_south(customer_id);
+CREATE INDEX idx_west_customer  ON sales_west(cust_id);
+CREATE INDEX idx_vw_date_region ON sales_north(sale_date), sales_south(sale_date), sales_west(sold_on);
+
+
+(MySQL doesn’t index a view directly; index underlying tables.)
+
+
+
+🧠 Summary
+Aliases normalize schema and make queries readable.
+UNION vs UNION ALL: dedupe vs keep all (and speed).
+INTERSECT / MINUS in MySQL → use JOIN patterns:
+INTERSECT → INNER JOIN on key columns
+MINUS/EXCEPT → LEFT JOIN ... IS NULL
+Build views to centralize normalization; aggregate and filter on top.
