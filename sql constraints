@@ -1,0 +1,137 @@
+To understand and apply various constraints in MySQL.
+
+In MySQL, the UNIQUE constraint ensures that all values in a column are distinct, preventing duplicate entries in the specified column or group of columns.
+
+The PRIMARY KEY constraint uniquely identifies each record in a table and combines both the UNIQUE and NOT NULL constraints; this means that each primary key value must be unique and cannot be null, ensuring a unique identifier for each row in the table.
+
+The NOT NULL constraint, on the other hand, ensures that a column cannot have a NULL value, meaning that a value must always be provided for that column whenever a new record is inserted or an existing record is updated.
+
+Together, these constraints enforce data integrity and help maintain accurate and reliable data within the database.
+
+
+
+
+
+Step:1 Create a table named "Departments" by executing below given SQL Statement and apply UNIQUE,PRIMARY KEY and NOT NULL consttraint to columns.
+
+ 
+
+CREATE TABLE Departments (
+    DepartmentID INT AUTO_INCREMENT,
+    DepartmentName VARCHAR(100) NOT NULL,
+    UNIQUE (DepartmentName),
+    PRIMARY KEY (DepartmentID)
+);
+
+
+
+
+Step:2 Before you create Employees table DROP table created in lab 1 by executing below command
+
+ 
+
+DROP TABLE employees;
+
+
+ 
+
+Step:3 In this step we will create table employees and set foreign key constraint,Execute below given SQL statement .
+
+ 
+
+CREATE TABLE Employees (
+    EmployeeID INT AUTO_INCREMENT,
+    FirstName VARCHAR(50) NOT NULL,
+    LastName VARCHAR(50) NOT NULL,
+    DepartmentID INT,
+    PRIMARY KEY (EmployeeID),
+    FOREIGN KEY (DepartmentID) REFERENCES Departments(DepartmentID)
+);
+
+
+ 
+
+Step:4 Once table is created lets verify constraints applied on a table by executing below Query in IDE
+
+ 
+
+SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+WHERE TABLE_SCHEMA = 'SchoolDB' AND TABLE_NAME = 'Employees';
+ 
+
+
+
+
+
+Step:5 Verify the output in result grid it should be similar to screenshot given below
+
+
+
+ 
+
+
+
+Step:6 Now lets Create a table named Products with a check constraint by executing below given SQL statement
+
+CREATE TABLE Products (
+    ProductID INT AUTO_INCREMENT,
+    ProductName VARCHAR(100) NOT NULL,
+    Price DECIMAL(10, 2) DEFAULT 0.00,
+    Stock INT CHECK (Stock >= 0),
+    PRIMARY KEY (ProductID)
+);
+
+
+
+
+Step:7 Once table is created lets verify constraints applied on a table by executing below Query in IDE
+
+SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+WHERE TABLE_SCHEMA = 'SchoolDB' AND TABLE_NAME = 'products';
+
+
+ 
+
+Verify the constraint in result grid as shown below
+
+
+
+
+
+ 
+
+Step:8 Now lets insert data in tables created above which has constraints .
+
+
+
+ 
+
+TIPS:
+
+Insert Parent Table Data First:Insert data into the Departments table before inserting into the Employees table because Employees references Departments.
+
+Respect Foreign Key Constraints:Ensure that the DepartmentID you are inserting into Employees already exists in the Departments table.
+
+Respect Check Constraints:Ensure that the values for Salary and Age meet the conditions defined in the check constraints.
+
+Execute below given statement to follow above given rule and insert some data to tables.
+
+
+
+ 
+
+INSERT INTO Departments (DepartmentName) VALUES ('HR');
+INSERT INTO Departments (DepartmentName) VALUES ('IT');
+
+INSERT INTO Employees (FirstName, LastName, DepartmentID) VALUES ('Charlie', 'Davis', 1);
+INSERT INTO Employees (FirstName, LastName, DepartmentID) VALUES ('Dana', 'Evans', 2);
+
+INSERT INTO Products (ProductName, Price, Stock) VALUES ('Laptop', 1500.00, 10);
+INSERT INTO Products (ProductName, Price, Stock) VALUES ('Mouse', 25.00, 50);
+ 
+
+
+
+Verify in Action output to ensure inserts are executed successfully.
